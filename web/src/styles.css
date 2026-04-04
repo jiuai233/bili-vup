@@ -1,0 +1,77 @@
+:root {
+  color: #172033;
+  background:
+    radial-gradient(circle at top left, rgba(255, 154, 139, 0.24), transparent 30%),
+    radial-gradient(circle at top right, rgba(97, 218, 251, 0.18), transparent 28%),
+    linear-gradient(180deg, #fff8f2 0%, #f4f8ff 100%);
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+a {
+  color: #1253c5;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: transparent;
+}
+
+.app-header {
+  height: auto;
+  padding: 32px 24px 8px;
+  background: transparent;
+}
+
+.app-title {
+  margin: 0 !important;
+}
+
+.app-subtitle {
+  color: rgba(23, 32, 51, 0.7);
+}
+
+.app-content {
+  padding: 16px 24px 32px;
+}
+
+.search-card {
+  border-radius: 20px;
+}
+
+.section-gap {
+  margin-top: 16px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.center-box {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 280px;
+}
+
+@media (max-width: 768px) {
+  .app-content,
+  .app-header {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,56 @@
+users:
+CREATE TABLE users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    hashed_password TEXT NOT NULL,
+                    refresh_token TEXT,
+                    created_at TEXT NOT NULL,
+                    last_login_at TEXT
+                )
+
+sqlite_sequence:
+CREATE TABLE sqlite_sequence(name,seq)
+
+anchors:
+CREATE TABLE anchors (
+                    uid INTEGER PRIMARY KEY,
+                    room_id INTEGER NOT NULL,
+                    uname TEXT NOT NULL,
+                    face TEXT,
+                    is_signed INTEGER DEFAULT 0,
+                    is_star_anchor INTEGER DEFAULT 0,
+                    star_level INTEGER DEFAULT 0,
+                    notice_id INTEGER,
+                    star_metrics TEXT,
+                    is_new_anchor INTEGER DEFAULT 0,
+                    valid_live_day INTEGER DEFAULT 0,
+                    status INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+
+user_anchor_preferences:
+CREATE TABLE user_anchor_preferences (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    anchor_uid INTEGER NOT NULL,
+                    preference INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(user_id, anchor_uid),
+                    FOREIGN KEY(user_id) REFERENCES users(id),
+                    FOREIGN KEY(anchor_uid) REFERENCES anchors(uid)
+                )
+
+vtubers:
+CREATE TABLE vtubers (
+                    uid INTEGER PRIMARY KEY,
+                    roomid INTEGER,
+                    uname TEXT,
+                    face TEXT,
+                    user_cover TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+

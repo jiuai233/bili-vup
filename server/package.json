@@ -1,0 +1,15 @@
+{
+  "name": "bilibili-vup-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "filter:creators": "node scripts/filter-creators.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "sqlite3": "^6.0.1"
+  }
+}
