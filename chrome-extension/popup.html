@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 260px;
+      padding: 16px;
+      margin: 0;
+      font-family: 'Microsoft YaHei', sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+    }
+
+    h3 {
+      margin: 0 0 12px 0;
+      font-size: 15px;
+      color: #fa7298;
+    }
+
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #2a2a3e;
+    }
+
+    .setting-row:last-child {
+      border-bottom: none;
+    }
+
+    .label {
+      font-size: 13px;
+    }
+
+    .desc {
+      font-size: 11px;
+      color: #888;
+      margin-top: 3px;
+    }
+
+    /* 开关样式 */
+    .switch {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #555;
+      transition: 0.3s;
+      border-radius: 24px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+    }
+
+    input:checked+.slider {
+      background-color: #67C23A;
+    }
+
+    input:checked+.slider:before {
+      transform: translateX(20px);
+    }
+
+    .status {
+      margin-top: 12px;
+      padding: 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      text-align: center;
+      background: #2a2a3e;
+      color: #aaa;
+    }
+  </style>
+</head>
+
+<body>
+  <h3>B站UP主监控设置</h3>
+
+  <div class="setting-row">
+    <div>
+      <div class="label">自动录入模式</div>
+      <div class="desc">开启后访问UP主页自动入库</div>
+    </div>
+    <label class="switch">
+      <input type="checkbox" id="autoToggle">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="setting-row">
+    <div>
+      <div class="label" style="margin-bottom: 5px;">云端控制台根域名/IP (带协议和端口)</div>
+      <input type="text" id="serverUrl" placeholder=" vup.jiuai233.work"
+        style="width: 100%; border:none; background: #2a2a3e; color: #fff; padding: 6px; border-radius: 4px; box-sizing: border-box; font-size: 11px;">
+    </div>
+  </div>
+
+  <div class="status" id="status">就绪</div>
+
+  <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #3c3c58;">
+    <div style="font-size: 13px; margin-bottom: 8px; color: #bbb;">Plugin API Key 鉴权密钥</div>
+    <input type="password" id="pluginSecret" placeholder="与后端共用的写密匙"
+      style="width: 100%; border:none; background: #2a2a3e; color: #fff; padding: 10px; border-radius: 6px; box-sizing: border-box;">
+  </div>
+
+  <div style="margin-top: 15px; text-align: center;">
+    <button id="goToAdminBtn"
+      style="width: 100%; border: none; background: #fa7298; color: #fff; padding: 12px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.3s; font-size: 14px;">
+      跳转至云端总控台
+    </button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+
+</html>

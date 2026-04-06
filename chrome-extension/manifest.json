@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "B站UP主监控入库插件",
+  "version": "1.0",
+  "description": "在B站UP主空间页显示一键入库按钮，将UP送入本地系统进行追踪",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://api.bilibili.com/*",
+    "http://localhost:3002/*",
+    "http://127.0.0.1:3002/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://space.bilibili.com/*"
+      ],
+      "js": [
+        "content.js"
+      ]
+    }
+  ],
+  "action": {
+    "default_title": "B站UP主监控",
+    "default_popup": "popup.html"
+  }
+}

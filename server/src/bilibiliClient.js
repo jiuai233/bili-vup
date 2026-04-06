@@ -65,6 +65,37 @@ export class BilibiliClient {
     };
   }
 
+  // 获取通用统计数据（粉丝数与发稿总计）
+  async getUserStat(uid, options = {}) {
+    const [statRes, navRes] = await Promise.all([
+      this.#request(`/x/relation/stat?vmid=${uid}`, options).catch(() => ({ data: {} })),
+      this.#request(`/x/space/navnum?mid=${uid}`, options).catch(() => ({ data: {} }))
+    ]);
+    
+    return {
+      follower_count: Number(statRes?.data?.follower) || 0,
+      video_count: Number(navRes?.data?.video) || 0
+    };
+  }
+
+  // 拉取全时间线最新 N 个稿件（不限时间段）
+  async getLatestVideos(uid, count = 10, options = {}) {
+    const response = await this.#requestWbi(
+      "/x/space/wbi/arc/search",
+      {
+        mid: uid,
+        pn: 1,
+        ps: count,
+        order: "pubdate",
+      },
+      options
+    );
+
+    const items = response?.data?.list?.vlist;
+    if (!Array.isArray(items)) return [];
+    return items.map(this.#toVideoSummary);
+  }
+
   async getRecentVideos(uid, months = THREE_MONTHS_LABEL, options = {}) {
     const threshold = Math.floor(subtractMonths(new Date(), months).getTime() / 1000);
     const videos = [];
