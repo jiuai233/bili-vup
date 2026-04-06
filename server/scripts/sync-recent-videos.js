@@ -1,5 +1,6 @@
 import { initMySQL, getPool } from "../src/mysql_db.js";
 import { BilibiliClient } from "../src/bilibiliClient.js";
+import { decryptCookie } from "../src/crypto.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -9,12 +10,26 @@ export async function runSyc() {
     const pool = getPool();
     const client = new BilibiliClient();
 
+    // 0. 执行自净能力：每次轮询前自动剔除 30 天前的数据快照，防止历史累积拖垮连表查询
+    try {
+      await pool.query("DELETE FROM bili_creator_daily_stats WHERE record_date < DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+      await pool.query("DELETE FROM bili_video_daily_stats WHERE record_date < DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+    } catch(e) {
+      console.error("执行自净删除时发生警告 (无视即可):", e);
+    }
+
     // 1. 提取核心受保护配置 (Cookie 与 频率参数)
     const [configRows] = await pool.query("SELECT config_key, config_value FROM bili_system_config");
     const sysConfig = {};
     configRows.forEach(row => { sysConfig[row.config_key] = row.config_value; });
 
-    const COOKIE = sysConfig['bili_cookie'];
+    let COOKIE = process.env.BILIBILI_COOKIE || "";
+    if (sysConfig['bili_cookie_encrypted']) {
+        COOKIE = decryptCookie(sysConfig['bili_cookie_encrypted']) || COOKIE;
+    } else if (sysConfig['bili_cookie']) {
+        // Fallback for old plaintext cookies
+        COOKIE = sysConfig['bili_cookie'];
+    }
     if (!COOKIE || COOKIE.trim() === '') {
         console.error("❌ 严重警告：在 bili_system_config 中未能读取到 B站 Cookie，任务取消以防封禁。");
         return false;

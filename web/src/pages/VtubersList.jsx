@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { Table, Typography, Avatar, Card, Space, Input, Select, InputNumber, Button, message, Tooltip, Popconfirm, List, Tag } from "antd";
-import { StarOutlined, StarFilled, DeleteOutlined, StopOutlined } from "@ant-design/icons";
+import { Table, Typography, Avatar, Card, Space, Input, Select, InputNumber, Button, message, Tooltip, Popconfirm, List, Tag, Modal, Form, Progress } from "antd";
+import { StarOutlined, StarFilled, DeleteOutlined, StopOutlined, CloudDownloadOutlined, CheckCircleOutlined, CloseCircleOutlined, QrcodeOutlined, SyncOutlined } from "@ant-design/icons";
+import { QRCodeSVG } from 'qrcode.react';
 import { useOutletContext } from "react-router-dom";
 import api from '../utils/api';
 
@@ -19,6 +20,115 @@ export default function VtubersList() {
   const [minVideos, setMinVideos] = useState(null);
   const [maxVideos, setMaxVideos] = useState(null);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 20 });
+
+  const [isImportModalVisible, setIsImportModalVisible] = useState(false);
+  const [importForm] = Form.useForm();
+  const [activeJobId, setActiveJobId] = useState(null);
+  const [jobStatus, setJobStatus] = useState(null);
+
+  // QR Login States
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [qrData, setQrData] = useState(null);
+  const [qrStatus, setQrStatus] = useState('waiting'); 
+  const [qrMessage, setQrMessage] = useState('请使用哔哩哔哩移动端扫码');
+
+  useEffect(() => {
+    let interval;
+    if (qrModalVisible && qrData?.qrcode_key && qrStatus === 'waiting') {
+       interval = setInterval(async () => {
+           try {
+               const res = await api.get(`/bilibili/qrcode/poll?qrcode_key=${qrData.qrcode_key}&transient=true`);
+               if (res.data.success && res.data.code === 0) {
+                   setQrStatus('success');
+                   setQrMessage(res.data.message);
+                   importForm.setFieldsValue({ 
+                       customCookie: res.data.encrypted_cookie,
+                       targetUid: res.data.logged_in_uid || ''
+                   });
+                   message.success("跨域扫描成功！目标 UID 和密文凭证已装填完成！");
+                   setTimeout(() => {
+                       setQrModalVisible(false);
+                   }, 1500);
+               } else if (res.data.code === 86038) {
+                   setQrStatus('expired');
+                   setQrMessage("二维码已过期，请刷新重试");
+               } else if (res.data.code === 86090) {
+                   setQrMessage("已扫码，请在手机端点击确认登录");
+               }
+           } catch (e) {
+               console.error("Poll error", e);
+           }
+       }, 2000);
+    }
+    return () => clearInterval(interval);
+  }, [qrModalVisible, qrData, qrStatus, importForm]);
+
+  const openQrScanner = async () => {
+      setQrModalVisible(true);
+      setQrStatus('waiting');
+      setQrData(null);
+      setQrMessage('正在向 B 站申请临时跨域通行证...');
+      try {
+          const res = await api.get('/bilibili/qrcode/generate');
+          if (res.data.success) {
+              setQrData({ url: res.data.url, qrcode_key: res.data.qrcode_key });
+              setQrMessage('请使用哔哩哔哩移动端扫码');
+          }
+      } catch(e) {
+          setQrStatus('expired');
+          setQrMessage('请求二维码失败');
+      }
+  };
+
+  useEffect(() => {
+    let interval;
+    if (activeJobId && (!jobStatus || (jobStatus.status !== 'done' && jobStatus.status !== 'failed'))) {
+      interval = setInterval(async () => {
+        try {
+           const res = await api.get(`/jobs/${activeJobId}`);
+           if (res.data.success) {
+               setJobStatus(res.data.job);
+               if (res.data.job.status === 'done') {
+                   message.success("导入已完成！");
+                   // 延时刷新
+                   setTimeout(() => {
+                       fetchData(1, pagination.pageSize, keyword, searchType, minVideos, maxVideos);
+                       setPagination(prev => ({...prev, current: 1}));
+                   }, 1000);
+               }
+           }
+        } catch (e) {
+           console.error(e);
+        }
+      }, 2000);
+    }
+    return () => clearInterval(interval);
+  }, [activeJobId, jobStatus]);
+
+  const handleImportSubmit = async (values) => {
+      try {
+          const res = await api.post("/jobs/import-followings", {
+              targetUid: values.targetUid,
+              customCookie: values.customCookie
+          });
+          if (res.data.success) {
+              setActiveJobId(res.data.jobId);
+              setJobStatus({ status: 'pending', progress_page: 0, imported_count: 0 });
+              message.success("后台任务已排队...");
+          }
+      } catch (err) {
+          message.error("提交失败");
+      }
+  };
+  
+  const handleCloseModal = () => {
+      setIsImportModalVisible(false);
+      if (jobStatus && (jobStatus.status === 'done' || jobStatus.status === 'failed')) {
+          setActiveJobId(null);
+          setJobStatus(null);
+          importForm.resetFields();
+      }
+  };
 
   const fetchData = async (page, pageSize, searchVal, typeVal, minV, maxV) => {
     setLoading(true);
@@ -213,7 +323,9 @@ export default function VtubersList() {
             <InputNumber min={0} placeholder="最大" value={maxVideos} onChange={setMaxVideos} style={{ width: 70 }} />
             <Button type="primary" onClick={applyVideoRangeFilter}>生效</Button>
           </Space>
-        </div>     </Space>
+        </div>     
+        <Button icon={<CloudDownloadOutlined />} onClick={() => setIsImportModalVisible(true)}>导入关注</Button>
+             </Space>
           </Space>
         } 
         variant="borderless" 
@@ -309,6 +421,128 @@ export default function VtubersList() {
           />
         )}
       </Card>
+
+      <Modal
+        title="✨ 一键拉取大范围关注列表"
+        open={isImportModalVisible}
+        onCancel={handleCloseModal}
+        footer={activeJobId ? [
+            <Button key="close" onClick={handleCloseModal} type={jobStatus?.status === 'done' ? "primary" : "default"}>
+              {jobStatus?.status === 'done' || jobStatus?.status === 'failed' ? "关闭" : "后台运行并关闭"}
+            </Button>
+        ] : null}
+      >
+        {!activeJobId ? (
+          <Form form={importForm} layout="vertical" onFinish={handleImportSubmit}>
+            <Form.Item name="targetUid" label="🎯 目标大V的 B站 UID" rules={[{ required: true, message: "请输入目标UID" }]}>
+              <Input placeholder="例如: 3723075" size="large" />
+            </Form.Item>
+            <Form.Item label="🍪 自定义 Cookie (选填)">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <Form.Item name="customCookie" noStyle>
+                  <Input.TextArea placeholder="默认使用系统公用 Cookie，如遇风控或非公开关注可填入明文，或者👇免密扫码安全注入" rows={3} />
+                </Form.Item>
+                <Button type="dashed" block icon={<QrcodeOutlined />} onClick={openQrScanner}>
+                  📱 手机扫码直打临时密文凭证 (无明文泄露)
+                </Button>
+              </div>
+            </Form.Item>
+            <Button type="primary" htmlType="submit" size="large" block icon={<CloudDownloadOutlined />}>
+              发射！立刻调度抓取
+            </Button>
+          </Form>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            {jobStatus?.status === 'pending' && (
+              <div>
+                 <h3>等待 Worker 接单中...</h3>
+                 <p style={{color: '#999'}}>队伍可能在忙，请稍候</p>
+              </div>
+            )}
+            {jobStatus?.status === 'running' && (
+              <div>
+                 <h3>🏃 Worker 疯狂搬运中...</h3>
+                 <Progress percent={100} status="active" showInfo={false} style={{ marginBottom: 16 }} />
+                 <Space size="large">
+                    <div style={{textAlign: 'center'}}>
+                      <div style={{fontSize: 12, color: '#999'}}>已探索页数</div>
+                      <div style={{fontSize: 24, fontWeight: 'bold'}}>{jobStatus.progress_page || 0}</div>
+                    </div>
+                    <div style={{textAlign: 'center'}}>
+                      <div style={{fontSize: 12, color: '#999'}}>已入库人数</div>
+                      <div style={{fontSize: 24, fontWeight: 'bold', color: '#1677ff'}}>{jobStatus.imported_count || 0}</div>
+                    </div>
+                 </Space>
+              </div>
+            )}
+            {jobStatus?.status === 'done' && (
+              <div>
+                 <CheckCircleOutlined style={{ fontSize: 48, color: '#52c41a', marginBottom: 16 }} />
+                 <h3>搬运圆满完成！</h3>
+                 <p>成功收容 <strong>{(jobStatus.imported_count || 0)}</strong> 位目标！</p>
+              </div>
+            )}
+            {jobStatus?.status === 'failed' && (
+              <div>
+                 <CloseCircleOutlined style={{ fontSize: 48, color: '#ff4d4f', marginBottom: 16 }} />
+                 <h3>执行意外中止</h3>
+                 <p style={{color: '#ff4d4f'}}>{jobStatus.error_message || '未知错误'}</p>
+                 <Button onClick={() => setActiveJobId(null)} style={{marginTop: 8}}>重试新任务</Button>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+    <Modal
+         title="获取 B站跨域临时通行证"
+         open={qrModalVisible}
+         onCancel={() => setQrModalVisible(false)}
+         footer={null}
+         width={380}
+         centered
+      >
+         <div style={{ textAlign: 'center', padding: '10px 0' }}>
+            {qrStatus === 'success' ? (
+                <div>
+                   <CheckCircleOutlined style={{ fontSize: 54, color: '#52c41a', marginBottom: 16 }} />
+                   <Title level={4}>授权大成功！</Title>
+                   <Text type="secondary">{qrMessage}</Text>
+                </div>
+            ) : qrData ? (
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                   <QRCodeSVG 
+                      value={qrData.url} 
+                      size={200} 
+                      level="H"
+                      imageSettings={{
+                          src: "https://i0.hdslb.com/bfs/archive/48dcb1a1a5b8daabbdbcf826cd3bbdeab227b686.png",
+                          height: 48,
+                          width: 48,
+                          excavate: true,
+                      }} 
+                   />
+                   {qrStatus === 'expired' && (
+                     <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+                         <Text type="danger" strong style={{ marginBottom: 16 }}>二维码已失效</Text>
+                         <Button type="primary" icon={<SyncOutlined />} onClick={openQrScanner}>刷新重试</Button>
+                     </div>
+                   )}
+                </div>
+            ) : (
+                <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                   <SyncOutlined spin style={{ fontSize: 32, color: '#1677ff' }} />
+                </div>
+            )}
+            
+            {qrStatus !== 'success' && (
+               <div style={{ marginTop: 24 }}>
+                  <Text strong style={{ fontSize: 16 }}>{qrMessage}</Text>
+               </div>
+            )}
+         </div>
+      </Modal>
+
     </div>
   );
 }

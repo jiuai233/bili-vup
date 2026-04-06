@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import { initMySQL, getPool } from "./mysql_db.js";
 import { startWorker } from "./worker.js";
+import { encryptCookie } from "./crypto.js";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import dotenv from 'dotenv';
@@ -121,6 +122,122 @@ app.post("/api/plugin/vtubers", async (req, res) => {
   } catch (error) {
     console.error("[Plugin] 入库异常:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
+  }
+});
+
+// ================= 关注列表导入任务管理 =================
+app.post("/api/jobs/import-followings", requireAuth, async (req, res) => {
+  try {
+    const { targetUid, customCookie } = req.body;
+    if (!targetUid) {
+      return res.status(400).json({ message: "请提供目标 UID" });
+    }
+
+    const pool = getPool();
+    const [result] = await pool.query(`
+      INSERT INTO bili_import_jobs (job_type, target_uid, status, cookie_override)
+      VALUES ('followings_import', ?, 'pending', ?)
+    `, [targetUid, customCookie || '']);
+
+    res.json({ success: true, jobId: result.insertId });
+  } catch (error) {
+    console.error("[Job] 创建导入任务失败:", error);
+    res.status(500).json({ success: false, message: "创建导入任务失败" });
+  }
+});
+
+app.get("/api/jobs/:id", requireAuth, async (req, res) => {
+  try {
+    const pool = getPool();
+    const [rows] = await pool.query("SELECT * FROM bili_import_jobs WHERE id = ?", [req.params.id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "任务不存在" });
+    }
+    res.json({ success: true, job: rows[0] });
+  } catch (error) {
+    res.status(500).json({ message: "查询任务状态失败" });
+  }
+});
+
+// ================= B 站扫码自动登录提取 Cookie =================
+const qrSessions = new Map(); // Store qrcode_key -> expirationTime
+
+app.get("/api/bilibili/qrcode/generate", requireAuth, async (req, res) => {
+  try {
+    const response = await fetch("https://passport.bilibili.com/x/passport-login/web/qrcode/generate", {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
+    });
+    const payload = await response.json();
+    if (payload.code === 0) {
+      const { url, qrcode_key } = payload.data;
+      qrSessions.set(qrcode_key, Date.now() + 180 * 1000); // 3分钟过期
+      return res.json({ success: true, url, qrcode_key });
+    }
+    return res.status(500).json({ success: false, message: "无法向B站请求二维码" });
+  } catch (error) {
+    console.error("QR Generate error:", error);
+    res.status(500).json({ success: false, message: "生成二维码失败" });
+  }
+});
+
+app.get("/api/bilibili/qrcode/poll", requireAuth, async (req, res) => {
+  try {
+    const { qrcode_key } = req.query;
+    if (!qrcode_key || !qrSessions.has(qrcode_key)) {
+      return res.status(400).json({ success: false, code: 86038, message: "二维码不存在或已过期,请刷新重试" });
+    }
+    if (Date.now() > qrSessions.get(qrcode_key)) {
+      qrSessions.delete(qrcode_key);
+      return res.status(400).json({ success: false, code: 86038, message: "二维码已过期" });
+    }
+
+    const response = await fetch(`https://passport.bilibili.com/x/passport-login/web/qrcode/poll?qrcode_key=${qrcode_key}`, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
+    });
+    const payload = await response.json();
+    
+    // B站扫码成功状态码是 0
+    if (payload.code === 0 && payload.data.code === 0) {
+      // 成功确认登录！获取 headers 内的 Set-Cookie
+      const setCookieHeaders = response.headers.get("set-cookie");
+      if (setCookieHeaders) {
+          // 清洗并提取 SESSDATA, bili_jct 等
+          const cookies = setCookieHeaders.split(',').map(c => c.split(';')[0].trim());
+          const finalCookie = cookies.join('; ');
+          
+          let loggedInUid = '';
+          cookies.forEach(c => {
+             if (c.startsWith('DedeUserID=')) {
+                 loggedInUid = c.split('=')[1];
+             }
+          });
+          
+          // 对抓到的明文做 AES 加密落库
+          const encryptedCookieStr = encryptCookie(finalCookie);
+          
+          if (req.query.transient !== 'true') {
+            const pool = getPool();
+            await pool.query(`
+              INSERT INTO bili_system_config (config_key, config_value, description)
+              VALUES ('bili_cookie_encrypted', ?, '系统自动扫码捕获的动态密文凭证')
+              ON DUPLICATE KEY UPDATE config_value = VALUES(config_value);
+            `, [encryptedCookieStr]);
+          }
+          
+          qrSessions.delete(qrcode_key);
+          return res.json({ 
+              success: true, 
+              message: "扫码抓取圆满成功，鉴权密钥已加密就绪！", 
+              code: 0, 
+              encrypted_cookie: encryptedCookieStr,
+              logged_in_uid: loggedInUid
+          });
+      }
+    }
+    
+    return res.json({ success: true, code: payload.data.code, message: payload.data.message });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "轮询异常" });
   }
 });
 
@@ -367,9 +484,11 @@ app.get("/api/videos", requireAuth, async (req, res) => {
     `;
 
     // 采用 COALESCE 兜底，防止没有今日快照的视频丢失排序逻辑，确保全量呈现
+    // 特殊处理 pubdate，因为它在 v 表而不是 s 表中
+    const orderByClause = orderBy === 'pubdate' ? `v.pubdate ${orderDirection}` : `COALESCE(s.${orderBy}, 0) ${orderDirection}`;
     const [rows] = await pool.query(`
       ${baseQuery}
-      ORDER BY COALESCE(s.${orderBy}, 0) ${orderDirection}
+      ORDER BY ${orderByClause}
       LIMIT ? OFFSET ?
     `, [...params, parseInt(limit), offset]);
 

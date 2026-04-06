@@ -1,9 +1,11 @@
 import { runSyc } from '../scripts/sync-recent-videos.js';
+import { startJobRunner } from './jobRunner.js';
 
 let isRunning = false;
 let checkInterval = 5 * 60 * 1000; // 每 5 分钟尝试唤醒一次爬虫队列
 
 export function startWorker() {
+    startJobRunner();
     console.log(`⚙️ [Worker] 后台常驻监听系统已拉起 (心跳频率: 5分钟)...`);
     
     // 不断地扫描队头的待爬取任务

@@ -20,7 +20,8 @@ export default function MonthlyRanking() {
       const url = `/growth/monthly?month=${tgtMonth.format('YYYY-MM')}&limit=${scaleSize}`;
       const response = await api.get(url);
       if (response.data.success) {
-        setData(response.data.items || []);
+        const rankedItems = (response.data.items || []).map((item, idx) => ({ ...item, _rank: idx }));
+        setData(rankedItems);
       }
     } catch (error) {
       if (error.response?.status !== 401) {
@@ -60,7 +61,7 @@ export default function MonthlyRanking() {
       title: "历史排名",
       key: "rank",
       width: 80,
-      render: (text, record, index) => getRankBadge(index)
+      render: (text, record) => getRankBadge(record._rank)
     },
     {
       title: "高能视频档案 (百大收录)",
@@ -148,14 +149,14 @@ export default function MonthlyRanking() {
           <List
             dataSource={data}
             loading={loading}
-            pagination={{ pageSize: 50, align: 'center', showSizeChanger: false }}
+            pagination={{ defaultPageSize: 50, align: 'center', showSizeChanger: false }}
             split={true}
-            renderItem={(item, index) => (
+            renderItem={(item) => (
               <List.Item style={{ padding: '12px 0', borderBottom: '1px solid #f0f0f0' }}>
                 <div style={{ display: 'flex', width: '100%', gap: 12 }}>
                   <div style={{ flexShrink: 0, position: 'relative' }}>
                     <div style={{ position: 'absolute', top: 4, left: 4, background: '#fa7298', color: '#fff', fontSize: 10, padding: '0 4px', borderRadius: 4, zIndex: 10, fontWeight: 'bold' }}>
-                      NO.{index + 1}
+                      NO.{item._rank + 1}
                     </div>
                     <img 
                       src={item.cover_pic || item.face} 
@@ -189,7 +190,7 @@ export default function MonthlyRanking() {
             )}
           />
         ) : (
-          <Table scroll={{ x: 800 }} rowKey="bvid" columns={monthlyColumns} dataSource={data} loading={loading} pagination={{ pageSize: 50, showSizeChanger: true }} />
+          <Table scroll={{ x: 800 }} rowKey="bvid" columns={monthlyColumns} dataSource={data} loading={loading} pagination={{ defaultPageSize: 50, showSizeChanger: true, pageSizeOptions: ['50', '100', '200', '500'] }} />
         )}
       </Card>
     </div>

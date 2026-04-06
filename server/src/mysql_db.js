@@ -127,13 +127,28 @@ export async function initMySQL() {
           UNIQUE KEY uk_bvid_date (bvid, record_date)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+    // 7. import_jobs (导入任务队列表)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bili_import_jobs (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          job_type VARCHAR(50) DEFAULT 'followings_import',
+          target_uid VARCHAR(50) NOT NULL,
+          status VARCHAR(20) DEFAULT 'pending',
+          progress_page INT DEFAULT 0,
+          imported_count INT DEFAULT 0,
+          error_message TEXT,
+          cookie_override TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
 
     // 自动热补丁：为排期、排序巨量数据建立关键性能索引，防止 Filesort (全表重排阻塞) 
     await pool.query("ALTER TABLE bili_video_daily_stats ADD INDEX idx_view_count (view_count DESC)").catch(() => {});
     await pool.query("ALTER TABLE bili_video_daily_stats ADD INDEX idx_record_date (record_date)").catch(() => {});
     await pool.query("ALTER TABLE bili_creator_daily_stats ADD INDEX idx_follower_count (follower_count DESC)").catch(() => {});
 
-    console.log("[DB] MySQL 初始化完成！六大物理表就位。");
+    console.log("[DB] MySQL 初始化完成！七大物理表就位。");
     return pool;
   } catch (error) {
     console.error("[DB] MySQL 初始化失败:", error);

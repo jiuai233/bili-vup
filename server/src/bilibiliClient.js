@@ -78,6 +78,16 @@ export class BilibiliClient {
     };
   }
 
+  // 获取目标用户的关注列表 (分页)
+  async getFollowingsPage(uid, pn = 1, options = {}) {
+    const response = await this.#request(`/x/relation/followings?vmid=${uid}&pn=${pn}&ps=50&order=desc`, options);
+    
+    return {
+      list: response?.data?.list || [],
+      total: response?.data?.total || 0
+    };
+  }
+
   // 拉取全时间线最新 N 个稿件（不限时间段）
   async getLatestVideos(uid, count = 10, options = {}) {
     const response = await this.#requestWbi(
