@@ -1,6 +1,7 @@
 import { initMySQL, getPool } from "../src/mysql_db.js";
 import { BilibiliClient } from "../src/bilibiliClient.js";
 import { decryptCookie } from "../src/crypto.js";
+import { getCurrentUnixTimestamp, getShanghaiDateString, getShanghaiTodayAndYesterday } from "../src/time.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -9,11 +10,14 @@ export async function runSyc() {
   try {
     const pool = getPool();
     const client = new BilibiliClient();
+    const { today } = getShanghaiTodayAndYesterday();
+    const retentionCutoff = getShanghaiDateString(-30);
+    const nowUnix = getCurrentUnixTimestamp();
 
     // 0. 执行自净能力：每次轮询前自动剔除 30 天前的数据快照，防止历史累积拖垮连表查询
     try {
-      await pool.query("DELETE FROM bili_creator_daily_stats WHERE record_date < DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
-      await pool.query("DELETE FROM bili_video_daily_stats WHERE record_date < DATE_SUB(CURDATE(), INTERVAL 30 DAY)");
+      await pool.query("DELETE FROM bili_creator_daily_stats WHERE record_date < ?", [retentionCutoff]);
+      await pool.query("DELETE FROM bili_video_daily_stats WHERE record_date < ?", [retentionCutoff]);
     } catch(e) {
       console.error("执行自净删除时发生警告 (无视即可):", e);
     }
@@ -42,21 +46,27 @@ export async function runSyc() {
     // 2. 从主库依条件索要出排长蛇阵的 UP 主名单
     // 处理逻辑：只提取那些已经抵达或者超过 next_check_at 期限的主播！
     const [targets] = await pool.query(`
-      SELECT v.uid, v.uname 
+      SELECT v.uid, v.uname, v.priority
       FROM bili_vtubers v
       WHERE v.is_active = 1
-      AND v.next_check_at <= NOW()
+      AND (
+        UNIX_TIMESTAMP(v.next_check_at) <= ?
+        OR NOT EXISTS (
+          SELECT 1
+          FROM bili_creator_daily_stats s
+          WHERE s.uid = v.uid AND s.record_date = ?
+        )
+      )
       AND (
         COALESCE((SELECT follower_count FROM bili_creator_daily_stats WHERE uid = v.uid ORDER BY record_date DESC LIMIT 1), 99999999) >= ?
         OR
         COALESCE((SELECT follower_count FROM bili_creator_daily_stats WHERE uid = v.uid ORDER BY record_date DESC LIMIT 1), 99999999) = 0
       )
       ORDER BY v.priority DESC, v.next_check_at ASC
-    `, [minFans]);
+    `, [nowUnix, today, minFans]);
 
     console.log(`🎯 [Scheduler] 装备 Cookie 完毕。共有 ${targets.length} 位 UP 主纳入调度规划 (粉丝门槛: ${minFans})。防风控周期: ${delayMs}ms`);
     
-    const today = new Date().toISOString().split('T')[0];
     let successCount = 0;
 
     // 3. 开始执行逐个遍历打快照
@@ -100,11 +110,21 @@ export async function runSyc() {
             }
 
             // 打上时间戳，压到长队末尾。优先用户每4小时查一次，普通用户每24小时查一次
+            const currentUnix = getCurrentUnixTimestamp();
             await pool.query(`
                 UPDATE bili_vtubers 
-                SET next_check_at = DATE_ADD(NOW(), INTERVAL IF(priority > 0, 4, 24) HOUR) 
+                SET next_check_at = FROM_UNIXTIME(?),
+                    last_checked_at = FROM_UNIXTIME(?),
+                    follower_count = ?,
+                    recent_video_count = ?
                 WHERE uid = ?
-            `, [user.uid]);
+            `, [
+                currentUnix + ((Number(user.priority) > 0 ? 4 : 24) * 3600),
+                currentUnix,
+                userStat.follower_count,
+                recentVideos.length,
+                user.uid
+            ]);
             successCount++;
         } catch (e) {
             console.error(`  ❌ 发生风险性拦截或崩溃 (${user.uid}):`, e.message);

@@ -75,7 +75,9 @@ export async function initMySQL() {
           face VARCHAR(500) COMMENT '头像URL',
           sign TEXT COMMENT '个性签名',
           priority INT DEFAULT 0 COMMENT '调度优先级',
+          is_favorite TINYINT(1) DEFAULT 0 COMMENT '是否收藏',
           next_check_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '下次抓取时间计算基准',
+          last_checked_at TIMESTAMP NULL COMMENT '最近一次成功探测时间',
           is_active TINYINT(1) DEFAULT 1 COMMENT '0=停止监控 1=正在监控',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
@@ -85,6 +87,10 @@ export async function initMySQL() {
     // 自动热修复：弥补旧版本表结构可能缺失的新列
     await pool.query("ALTER TABLE bili_vtubers ADD COLUMN next_check_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP").catch(() => {});
     await pool.query("ALTER TABLE bili_vtubers ADD COLUMN priority INT DEFAULT 0").catch(() => {});
+    await pool.query("ALTER TABLE bili_vtubers ADD COLUMN is_favorite TINYINT(1) DEFAULT 0").catch(() => {});
+    await pool.query("ALTER TABLE bili_vtubers ADD COLUMN last_checked_at TIMESTAMP NULL").catch(() => {});
+    await pool.query("ALTER TABLE bili_vtubers ADD COLUMN follower_count INT DEFAULT 0").catch(() => {});
+    await pool.query("ALTER TABLE bili_vtubers ADD COLUMN recent_video_count INT DEFAULT 0").catch(() => {});
 
     // 4. videos 表 (纯元数据)
     await pool.query(`
@@ -140,6 +146,21 @@ export async function initMySQL() {
           cookie_override TEXT,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bili_vtuber_user_tags (
+          id BIGINT AUTO_INCREMENT PRIMARY KEY,
+          uid BIGINT NOT NULL,
+          user_id INT NOT NULL,
+          tag_text VARCHAR(100) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uk_uid_user_tag (uid, user_id, tag_text),
+          KEY idx_uid (uid),
+          KEY idx_user_id (user_id),
+          KEY idx_tag_text (tag_text)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 

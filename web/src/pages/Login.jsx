@@ -40,7 +40,7 @@ export default function Login() {
         </div>
         <Form name="login" onFinish={onFinish} size="large">
           <Form.Item name="username" rules={[{ required: true, message: '请输入管理员账号' }]}>
-            <Input prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} placeholder="管理员账号 (admin)" />
+            <Input prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} placeholder="管理员账号" />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
             <Input.Password prefix={<LockOutlined style={{ color: '#bfbfbf' }} />} placeholder="密码" />
