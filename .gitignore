@@ -6,6 +6,16 @@
 *.db-wal
 *.sqlite
 *.sqlite3
+*.sql
+
+# ==========================
+# Release Archives (发布包走 GitHub Releases)
+# ==========================
+*.7z
+*.zip
+*.rar
+*.tar
+*.tar.gz
 
 # ==========================
 # Python 运行缓存
@@ -14,6 +24,15 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# ==========================
+# Local Debug / One-off Scripts
+# ==========================
+GetInfo.py
+check_progress.py
+filter_active_vtubers.py
+sync_followings_to_mysql.py
+test_navnum.py
 
 # ==========================
 # Node.js 依赖与日志
@@ -38,4 +57,12 @@ web/dist-ssr/
 .DS_Store
 Thumbs.db
 
-*.sql
+# ==========================
+# Local Planning / Codex Artifacts
+# ==========================
+.skill/
+FOLLOWINGS_TAG_PLAN.md
+implementation_plan.md
+web/src/pages/AdminShell.jsx
+web/src/pages/VtubersListPage.jsx
+web/src/pages/VtubersRoomPage.jsx
