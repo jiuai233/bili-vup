@@ -1,0 +1,164 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    env:
+      NODE_VERSION: "20"
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      APP_DOMAIN: ${{ secrets.APP_DOMAIN }}
+      APP_PORT: ${{ secrets.APP_PORT || '3009' }}
+      AUTO_INSTALL_SERVER_DEPS: ${{ vars.AUTO_INSTALL_SERVER_DEPS || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate deployment secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_HOST" || { echo "Missing secret: SSH_HOST"; exit 1; }
+          test -n "$SSH_USER" || { echo "Missing secret: SSH_USER"; exit 1; }
+          test -n "$SSH_PORT" || { echo "Missing secret: SSH_PORT"; exit 1; }
+          test -n "$DEPLOY_PATH" || { echo "Missing secret: DEPLOY_PATH"; exit 1; }
+          test -n "$APP_DOMAIN" || { echo "Missing secret: APP_DOMAIN"; exit 1; }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            server/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci --prefix web
+
+      - name: Install server dependencies for validation
+        run: npm ci --prefix server
+
+      - name: Build web
+        run: npm --prefix web run build
+
+      - name: Pack release
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .deploy deploy.tar.gz
+          mkdir -p .deploy/web .deploy/server
+          rsync -a web/dist .deploy/web/
+          rsync -a --exclude node_modules --exclude .env server/ .deploy/server/
+          tar -czf deploy.tar.gz -C .deploy .
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_PRIVATE_KEY" || { echo "Missing secret: SSH_PRIVATE_KEY"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -p "$SSH_PORT" -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "mkdir -p '$DEPLOY_PATH'"
+          scp -P "$SSH_PORT" -i ~/.ssh/deploy_key deploy.tar.gz "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/deploy.tar.gz"
+
+      - name: Activate release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -p "$SSH_PORT" -i ~/.ssh/deploy_key "$SSH_USER@$SSH_HOST" "DEPLOY_PATH='$DEPLOY_PATH' APP_DOMAIN='$APP_DOMAIN' APP_PORT='$APP_PORT' AUTO_INSTALL_SERVER_DEPS='$AUTO_INSTALL_SERVER_DEPS' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd "$DEPLOY_PATH"
+
+          if [ "$AUTO_INSTALL_SERVER_DEPS" = "true" ]; then
+            if ! command -v curl >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y curl ca-certificates
+            fi
+            if ! command -v node >/dev/null 2>&1; then
+              curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+              sudo apt-get install -y nodejs
+            fi
+            if ! command -v nginx >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y nginx
+            fi
+            if ! command -v mysql >/dev/null 2>&1; then
+              sudo apt-get update
+              sudo apt-get install -y mysql-server
+            fi
+            if ! command -v pm2 >/dev/null 2>&1; then
+              sudo npm install -g pm2
+            fi
+          fi
+
+          mkdir -p web server
+          rm -rf web/dist server/src server/scripts
+          tar -xzf deploy.tar.gz
+          rm -f deploy.tar.gz
+
+          if [ ! -f server/.env ]; then
+            echo "Missing $DEPLOY_PATH/server/.env. Create and maintain this file on the server before deploying."
+            exit 1
+          fi
+
+          sudo tee /etc/nginx/conf.d/vup-web.conf >/dev/null <<NGINX
+          server {
+              listen 80;
+              server_name ${APP_DOMAIN};
+
+              root ${DEPLOY_PATH}/web/dist;
+              index index.html;
+
+              location / {
+                  try_files \$uri \$uri/ /index.html;
+              }
+
+              location /api/ {
+                  proxy_pass http://127.0.0.1:${APP_PORT};
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade \$http_upgrade;
+                  proxy_set_header Connection 'upgrade';
+                  proxy_set_header Host \$host;
+                  proxy_set_header X-Real-IP \$remote_addr;
+                  proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto \$scheme;
+                  proxy_cache_bypass \$http_upgrade;
+              }
+          }
+          NGINX
+          sudo nginx -t
+          sudo systemctl reload nginx || sudo nginx -s reload
+
+          cd server
+          npm ci --omit=dev
+          pm2 startOrReload ecosystem.config.cjs --env production
+          pm2 save
+          REMOTE
