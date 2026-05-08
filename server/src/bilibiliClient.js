@@ -78,6 +78,22 @@ export class BilibiliClient {
     };
   }
 
+  async getUserProfile(uid, options = {}) {
+    const response = await this.#requestWbi(
+      "/x/space/wbi/acc/info",
+      { mid: uid },
+      options
+    );
+    const data = response?.data || {};
+
+    return {
+      uid: Number(data.mid) || Number(uid),
+      uname: data.name || "",
+      face: data.face || "",
+      sign: data.sign || "",
+    };
+  }
+
   // 获取目标用户的关注列表 (分页)
   async getFollowingsPage(uid, pn = 1, options = {}) {
     const response = await this.#request(`/x/relation/followings?vmid=${uid}&pn=${pn}&ps=50&order=desc`, options);

@@ -75,8 +75,28 @@ export async function runSyc() {
         console.log(`[${i + 1}/${targets.length}] 正在爬取 ${user.uname} (UID: ${user.uid})...`);
 
         try {
-            // 拉取粉丝和视频计数存入快照
-            const userStat = await client.getUserStat(user.uid, { cookie: COOKIE });
+            // 拉取当前档案、粉丝和视频计数，避免 UP 主改名后本地昵称长期滞后
+            const [userProfile, userStat] = await Promise.all([
+                client.getUserProfile(user.uid, { cookie: COOKIE }).catch((error) => {
+                    console.warn(`  ⚠️ 档案刷新失败，保留旧昵称 (${user.uid}): ${error.message}`);
+                    return null;
+                }),
+                client.getUserStat(user.uid, { cookie: COOKIE }),
+            ]);
+
+            if (userProfile?.uname) {
+                await pool.query(`
+                    UPDATE bili_vtubers
+                    SET uname = ?, face = ?, sign = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE uid = ?
+                `, [
+                    userProfile.uname,
+                    userProfile.face || "",
+                    userProfile.sign || "",
+                    user.uid,
+                ]);
+            }
+
             await pool.query(`
                 INSERT INTO bili_creator_daily_stats (uid, record_date, follower_count, video_count)
                 VALUES (?, ?, ?, ?)
